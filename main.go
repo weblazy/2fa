@@ -102,7 +102,7 @@ func TowFA(c *cli.Context) error {
 			continue
 		}
 		if row[0] == "password" {
-			return nil
+			break
 		}
 		input := row[1]
 		// decode the key from the first argument
