@@ -144,7 +144,7 @@ func Gen2FAText() (string, error) {
 	return text, nil
 }
 
-func GenPasswordText() (string, error) {
+func GenPasswordText(key string) (string, error) {
 	csv, err := csvx.NewCSV(file, ',', "\n")
 	if err != nil {
 		return "", err
@@ -152,7 +152,6 @@ func GenPasswordText() (string, error) {
 	defer func() {
 		_ = csv.Close()
 	}()
-	key := c.String("key")
 	isPassword := false
 	text := ""
 	for row, err := csv.ReadLine(); err == nil; row, err = csv.ReadLine() {
