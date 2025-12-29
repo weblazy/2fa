@@ -9,13 +9,25 @@ import (
 	"strings"
 	"time"
 
+	"fyne.io/fyne/v2"
 	"github.com/urfave/cli/v2"
-	"github.com/weblazy/easy/utils/csvx"
+	"github.com/weblazy/crypto/aes"
+	"github.com/weblazy/crypto/mode"
+	"github.com/weblazy/easy/csvx"
 )
+
+var (
+	aesKey = os.Getenv("AES_KEY")
+	file   = os.Getenv("FA_PATH")
+)
+
+const preferenceCurrentTutorial = "currentTutorial"
+
+var topWindow fyne.Window
 
 func main() {
 	// 打印Banner
-	projectName := "2FA"
+	projectName := "Security"
 	// 配置cli参数
 	app := cli.NewApp()
 	app.Name = projectName
@@ -24,7 +36,47 @@ func main() {
 
 	// 指定命令运行的函数
 	app.Commands = []*cli.Command{
-		Cmd,
+		{
+			Name:    "2fa",
+			Aliases: []string{"2"},
+			Usage:   "sec 2fa",
+			Action:  TowFA,
+		},
+		{
+			Name:    "encrypt",
+			Aliases: []string{"enc"},
+			Usage:   "sec enc -t text",
+			Action:  Encrypt,
+			Flags: []cli.Flag{
+				&cli.StringFlag{
+					Name:    "text",
+					Aliases: []string{"t"},
+					Usage:   "text",
+					Value:   "",
+				},
+			},
+		},
+		{
+			Name:    "decrypt",
+			Aliases: []string{"dec"},
+			Usage:   "sec dec -k key",
+			Action:  Decrypt,
+			Flags: []cli.Flag{
+				&cli.StringFlag{
+					Name:    "key",
+					Aliases: []string{"k"},
+					Usage:   "key",
+					Value:   "",
+				},
+			},
+		},
+		{
+			Name:    "view",
+			Aliases: []string{"v"},
+			Usage:   "sec v",
+			Action:  View,
+			Flags:   []cli.Flag{},
+		},
 	}
 
 	// 启动cli
@@ -33,25 +85,8 @@ func main() {
 	}
 }
 
-var Cmd = &cli.Command{
-	Name:    "list",
-	Aliases: []string{"list"},
-	Usage:   "list -c FA_PATH",
-	Action:  Run,
-	Flags: []cli.Flag{
-		&cli.StringFlag{
-			Name:    "env_conf",
-			Aliases: []string{"c"},
-			Usage:   "env_conf",
-			Value:   "FA_PATH",
-		},
-	},
-}
-
 // all []byte in this program are treated as Big Endian
-func Run(c *cli.Context) error {
-	env := c.String("c")
-	file := os.Getenv(env)
+func TowFA(c *cli.Context) error {
 	csv, err := csvx.NewCSV(file, ',', "\n")
 	if err != nil {
 		return err
@@ -59,9 +94,15 @@ func Run(c *cli.Context) error {
 	defer func() {
 		_ = csv.Close()
 	}()
+	text := ""
+	epochSeconds := time.Now().Unix()
+	secondsRemaining := 30 - (epochSeconds % 30)
 	for row, err := csv.ReadLine(); err == nil; row, err = csv.ReadLine() {
 		if len(row) < 2 {
 			continue
+		}
+		if row[0] == "password" {
+			return nil
 		}
 		input := row[1]
 		// decode the key from the first argument
@@ -74,11 +115,45 @@ func Run(c *cli.Context) error {
 		}
 
 		// generate a one-time password using the time at 30-second intervals
-		epochSeconds := time.Now().Unix()
-		pwd := oneTimePassword(key, toBytes(epochSeconds/30))
 
-		secondsRemaining := 30 - (epochSeconds % 30)
-		fmt.Printf("%s: %06d %ds remaining\n", row[0], pwd, secondsRemaining)
+		pwd := oneTimePassword(key, toBytes(epochSeconds/30))
+		text += fmt.Sprintf("%s: %06d \n", row[0], pwd)
+	}
+	fmt.Printf("%s", text)
+	fmt.Printf("剩余有效期: %ds", secondsRemaining)
+	return nil
+}
+func Encrypt(c *cli.Context) error {
+	plaintext := c.String("text")
+	res, _ := aes.NewAes([]byte(aesKey)).WithMode(&mode.ECBMode{}).Encrypt(plaintext)
+	fmt.Printf("%s\n", res)
+	return nil
+}
+
+func Decrypt(c *cli.Context) error {
+	csv, err := csvx.NewCSV(file, ',', "\n")
+	if err != nil {
+		return err
+	}
+	defer func() {
+		_ = csv.Close()
+	}()
+	key := c.String("key")
+	isPassword := false
+	for row, err := csv.ReadLine(); err == nil; row, err = csv.ReadLine() {
+		if len(row) < 2 {
+			continue
+		}
+		if row[0] == "password" {
+			isPassword = true
+			continue
+		}
+
+		if !isPassword || (key != row[0] && key != "all") {
+			continue
+		}
+		res, _ := aes.NewAes([]byte(aesKey)).WithMode(&mode.ECBMode{}).Decrypt(row[1])
+		fmt.Printf("%s: %s\n", row[0], res)
 	}
 	return nil
 }
